@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type VortexSeries } from "@/lib/api";
+import { api, ApiError, coverSrc, type VortexSeries } from "@/lib/api";
 import { absoluteTime, chapterSort, relativeTime } from "@/lib/format";
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
@@ -74,10 +74,8 @@ export default function SeriesDetail() {
         {series.cover_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={series.cover_url}
+            src={coverSrc(source, series.cover_url)}
             alt={`Cover of ${series.name}`}
-            /* See SeriesCard: the CDN rejects requests with a foreign Referer. */
-            referrerPolicy="no-referrer"
             className="h-[280px] w-[190px] shrink-0 rounded-xl border border-border object-cover"
           />
         )}

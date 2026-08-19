@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { absoluteTime, relativeTime } from "@/lib/format";
+import { coverSrc } from "@/lib/api";
 import type { VortexSeries } from "@/lib/api";
 
-/* Covers are hotlinked from the source CDN rather than run through
-   next/image, so no remote-host config is needed and a CDN change can't
-   break the build. */
+/* Covers come through the backend's cover proxy rather than next/image, so no
+   remote-host config is needed and a CDN change can't break the build. See
+   coverSrc in lib/api for why the proxy is not optional. */
 
 export default function SeriesCard({
   series,
@@ -22,12 +23,9 @@ export default function SeriesCard({
         {series.cover_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={series.cover_url}
+            src={coverSrc(source, series.cover_url)}
             alt={`Cover of ${series.name}`}
             loading="lazy"
-            /* Their CDN 403s any request carrying a foreign Referer. Sending
-               none at all is accepted, and is what lets covers render here. */
-            referrerPolicy="no-referrer"
             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           />
         ) : (
