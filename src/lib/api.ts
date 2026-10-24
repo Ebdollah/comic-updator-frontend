@@ -15,7 +15,8 @@ export interface ChapterInfo {
   released_at: string | null;
 }
 
-export interface VortexSeries {
+/** A series as the feed sends it: everything but the chapter list. */
+export interface SeriesSummary {
   slug: string;
   name: string;
   url: string;
@@ -30,9 +31,36 @@ export interface VortexSeries {
   last_updated_at: string | null;
   latest_chapter: string | null;
   latest_chapter_url: string | null;
-  chapters: ChapterInfo[];
   source: string;
   scraped_at: string | null;
+}
+
+export interface VortexSeries extends SeriesSummary {
+  chapters: ChapterInfo[];
+}
+
+export type FeedSort = "newest" | "updated" | "chapters" | "name";
+
+export interface FeedPage {
+  items: SeriesSummary[];
+  /** Series matching the filters, across all pages. */
+  total: number;
+  offset: number;
+  /** Pass back as `offset` for the next page; null once the end is reached. */
+  next_offset: number | null;
+  /** Every stored series for the source, unfiltered. */
+  all_count: number;
+  /** Debut months across all stored series, newest first. */
+  months: { month: string; count: number }[];
+}
+
+export interface FeedParams {
+  offset?: number;
+  limit?: number;
+  sort?: FeedSort;
+  /** "YYYY-MM"; omit for every month. */
+  month?: string;
+  q?: string;
 }
 
 export interface ScrapeResult {
@@ -45,6 +73,20 @@ export interface ScrapeResult {
   skipped_slugs: string[];
   dry_run: boolean;
   duration_seconds: number;
+}
+
+export interface SourceScrapeOutcome {
+  source: string;
+  name: string;
+  ok: boolean;
+  result: ScrapeResult | null;
+  error: string | null;
+}
+
+export interface MultiScrapeResult {
+  total_saved: number;
+  duration_seconds: number;
+  sources: SourceScrapeOutcome[];
 }
 
 export interface SchedulerJob {
@@ -98,7 +140,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json" },
       ...init,
     });
-  } catch {
+  } catch (e) {
+    // Callers cancel superseded requests; let them tell that apart.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     throw new ApiError(
       `Can't reach the API at ${API_BASE}. Is the backend running?`,
       0,
@@ -135,8 +179,14 @@ export const api = {
   /** The sources this backend can scrape. Drives the dashboard tabs. */
   listSources: () => request<SourceInfo[]>("/sources"),
 
-  listSeries: (source: string, limit = 200) =>
-    request<VortexSeries[]>(`/sources/${source}/series?limit=${limit}`),
+  /** One page of a source's series, filtered and sorted by the backend. */
+  feed: (source: string, params: FeedParams = {}, signal?: AbortSignal) => {
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") qs.set(key, String(value));
+    }
+    return request<FeedPage>(`/sources/${source}/feed?${qs}`, { signal });
+  },
 
   getSeries: (source: string, slug: string) =>
     request<VortexSeries>(`/sources/${source}/series/${encodeURIComponent(slug)}`),
@@ -146,4 +196,8 @@ export const api = {
   /** Runs one source's scraper now. Stored series are skipped by the backend. */
   scrape: (source: string) =>
     request<ScrapeResult>(`/sources/${source}/scrape`, { method: "POST" }),
+
+  /** Runs every source's scraper at once and reports each one's haul. */
+  scrapeAll: () =>
+    request<MultiScrapeResult>("/sources/scrape-all", { method: "POST" }),
 };

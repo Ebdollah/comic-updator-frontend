@@ -1,58 +1,87 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
+  type FeedPage,
+  type FeedSort,
+  type SeriesSummary,
   type SourceInfo,
   type StatusResponse,
-  type VortexSeries,
 } from "@/lib/api";
 import { monthKey, monthLabel, shiftMonth } from "@/lib/format";
 import RefreshButton from "@/components/RefreshButton";
 import SeriesCard from "@/components/SeriesCard";
 import StatusBar from "@/components/StatusBar";
 
-type SortKey = "newest" | "updated" | "chapters" | "name";
-
-const SORTS: { key: SortKey; label: string }[] = [
+const SORTS: { key: FeedSort; label: string }[] = [
   { key: "newest", label: "Newest debut" },
   { key: "updated", label: "Recently updated" },
   { key: "chapters", label: "Most chapters" },
   { key: "name", label: "Name" },
 ];
 
-function time(iso: string | null): number {
-  return iso ? new Date(iso).getTime() : 0;
+const PAGE_SIZE = 24;
+
+interface Feed {
+  /** The request this answers; see requestKey. */
+  key: string;
+  source: string;
+  items: SeriesSummary[];
+  meta: Omit<FeedPage, "items" | "offset"> | null;
+  error: string | null;
+}
+
+const EMPTY_FEED: Feed = { key: "", source: "", items: [], meta: null, error: null };
+
+const message = (e: unknown, fallback: string) =>
+  e instanceof ApiError ? e.message : fallback;
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return debounced;
 }
 
 export default function Dashboard() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [source, setSource] = useState<string>("vortexscans");
-  const [series, setSeries] = useState<VortexSeries[]>([]);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("newest");
+  const [sort, setSort] = useState<FeedSort>("newest");
   const [month, setMonth] = useState("all");
+  // Bumped after a refresh to refetch the feed and status, filters unchanged.
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      // Status is best-effort: a stale status bar shouldn't hide the series.
-      const [list, stat] = await Promise.all([
-        api.listSeries(source),
-        api.getStatus(source).catch(() => null),
-      ]);
-      setSeries(list);
-      setStatus(stat);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, [source]);
+  // Filtering is server side now, so wait for a pause in typing.
+  const q = useDebounced(query.trim(), 300);
+
+  // "This month" must follow the calendar, not the newest stored record —
+  // a quiet month would otherwise silently relabel an older one as current.
+  const thisMonth = monthKey(new Date().toISOString());
+  const lastMonth = shiftMonth(thisMonth, -1);
+  const target =
+    month === "current"
+      ? thisMonth
+      : month === "previous"
+        ? lastMonth
+        : month === "all"
+          ? undefined
+          : month;
+  const active = sources.find((s) => s.id === source);
+
+  // Every result is tagged with the request it answers. "Loading" is then
+  // just "the latest answer is for some other request", and a late reply to
+  // an abandoned filter can never land on top of the current one.
+  const requestKey = [source, sort, target ?? "", q, reloadKey].join("|");
+  const [feed, setFeed] = useState<Feed>(EMPTY_FEED);
+  const [more, setMore] = useState({ key: "", loading: false, error: null as string | null });
+  const [statusOf, setStatusOf] = useState<{ source: string; status: StatusResponse | null }>();
+  const moreAbort = useRef<AbortController | null>(null);
+  const pendingMore = useRef<string | null>(null);
 
   // Tabs come from the backend registry, so adding a source there adds a tab.
   useEffect(() => {
@@ -70,56 +99,106 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    setSeries([]);
-    void load();
-  }, [load]);
+    let live = true;
+    // Status is best-effort: a stale status bar shouldn't hide the series.
+    api.getStatus(source).then(
+      (status) => live && setStatusOf({ source, status }),
+      () => live && setStatusOf({ source, status: null }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [source, reloadKey]);
 
-  // Months present in the data, newest first, with a count for each.
-  const months = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of series) {
-      const key = monthKey(s.first_chapter_released_at);
-      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-  }, [series]);
+  // First page, whenever the source or a filter changes.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    moreAbort.current?.abort();
+    api.feed(source, { sort, month: target, q, limit: PAGE_SIZE }, ctrl.signal).then(
+      ({ items, ...meta }) => {
+        if (!ctrl.signal.aborted) {
+          setFeed({ key: requestKey, source, items, meta, error: null });
+        }
+      },
+      (e) => {
+        if (!ctrl.signal.aborted) {
+          setFeed((prev) => ({ ...prev, key: requestKey, error: message(e, "Failed to load data") }));
+        }
+      },
+    );
+    return () => ctrl.abort();
+  }, [requestKey, source, sort, target, q]);
 
-  // "This month" must follow the calendar, not the newest stored record —
-  // a quiet month would otherwise silently relabel an older one as current.
-  const thisMonth = monthKey(new Date().toISOString());
-  const lastMonth = shiftMonth(thisMonth, -1);
-  const active = sources.find((s) => s.id === source);
+  const loading = feed.key !== requestKey;
+  const error = loading ? null : feed.error;
+  // Month counts don't depend on the filters, so keep showing them while a
+  // new filter loads; only a different tab's numbers are hidden.
+  const current = feed.source === source ? feed.meta : null;
+  const items = feed.source === source ? feed.items : [];
+  const nextOffset = loading || error ? null : (current?.next_offset ?? null);
+  const loadingMore = more.key === requestKey && more.loading;
+  const moreError = more.key === requestKey ? more.error : null;
+  const status = statusOf?.source === source ? statusOf.status : null;
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let filtered = q
-      ? series.filter((s) => s.name.toLowerCase().includes(q))
-      : series;
+  const loadMore = useCallback(async () => {
+    if (nextOffset == null) return;
+    // The observer can fire twice before a re-render; one fetch per page.
+    const tag = `${requestKey}@${nextOffset}`;
+    if (pendingMore.current === tag) return;
+    pendingMore.current = tag;
 
-    const target =
-      month === "current" ? thisMonth : month === "previous" ? lastMonth : month;
-    if (target !== "all") {
-      filtered = filtered.filter(
-        (s) => monthKey(s.first_chapter_released_at) === target,
+    const key = requestKey;
+    const ctrl = new AbortController();
+    moreAbort.current = ctrl;
+    setMore({ key, loading: true, error: null });
+    try {
+      const { items: page, ...meta } = await api.feed(
+        source,
+        { sort, month: target, q, limit: PAGE_SIZE, offset: nextOffset },
+        ctrl.signal,
       );
-    }
-
-    return [...filtered].sort((a, b) => {
-      switch (sort) {
-        case "newest":
-          return (
-            time(b.first_chapter_released_at) - time(a.first_chapter_released_at)
-          );
-        case "updated":
-          return time(b.last_updated_at) - time(a.last_updated_at);
-        case "chapters":
-          return b.total_chapters - a.total_chapters;
-        case "name":
-          return a.name.localeCompare(b.name);
+      // A scrape between pages can shift the order by a slot or two; never
+      // show the same card twice because of it.
+      setFeed((prev) => {
+        if (prev.key !== key) return prev;
+        const seen = new Set(prev.items.map((s) => s.slug));
+        return { ...prev, meta, items: [...prev.items, ...page.filter((s) => !seen.has(s.slug))] };
+      });
+      setMore({ key, loading: false, error: null });
+    } catch (e) {
+      if (!ctrl.signal.aborted) {
+        setMore({ key, loading: false, error: message(e, "Failed to load more") });
       }
-    });
-  }, [series, query, sort, month, thisMonth, lastMonth]);
+    } finally {
+      if (pendingMore.current === tag) pendingMore.current = null;
+    }
+  }, [nextOffset, requestKey, source, sort, target, q]);
+
+  // Infinite scroll: fetch the next page as the end of the list nears. The
+  // observer is rebuilt after every page, and a fresh observer reports the
+  // sentinel's current state at once — so a screen tall enough to show the
+  // whole page keeps loading until it is filled.
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || nextOffset == null || moreError) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMore();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore, nextOffset, moreError]);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  const months = current?.months ?? [];
+  const countFor = (key: string) =>
+    months.find((m) => m.month === key)?.count ?? 0;
+  const showSkeleton = loading && !current;
+  const filtered = Boolean(target || q);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-10">
@@ -136,7 +215,7 @@ export default function Dashboard() {
               "Series whose first chapter dropped this month, stored once."}
           </p>
         </div>
-        <RefreshButton source={source} onDone={load} />
+        <RefreshButton onDone={reload} />
       </header>
 
       {sources.length > 1 && (
@@ -170,17 +249,9 @@ export default function Dashboard() {
           Debut month
         </span>
         {[
-          { key: "all", label: "All", count: series.length },
-          {
-            key: "current",
-            label: "This month",
-            count: months.find(([m]) => m === thisMonth)?.[1] ?? 0,
-          },
-          {
-            key: "previous",
-            label: "Last month",
-            count: months.find(([m]) => m === lastMonth)?.[1] ?? 0,
-          },
+          { key: "all", label: "All", count: current?.all_count ?? 0 },
+          { key: "current", label: "This month", count: countFor(thisMonth) },
+          { key: "previous", label: "Last month", count: countFor(lastMonth) },
         ].map((opt) => (
           <button
             key={opt.key}
@@ -207,7 +278,7 @@ export default function Dashboard() {
           }`}
         >
           <option value="">Specific month…</option>
-          {months.map(([key, count]) => (
+          {months.map(({ month: key, count }) => (
             <option key={key} value={key}>
               {monthLabel(key)} ({count})
             </option>
@@ -242,7 +313,7 @@ export default function Dashboard() {
       </div>
 
       <section className="mt-5">
-        {loading ? (
+        {showSkeleton ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {[0, 1, 2, 3].map((i) => (
               <div
@@ -256,27 +327,27 @@ export default function Dashboard() {
             <h2 className="font-semibold text-accent">Couldn&apos;t load series</h2>
             <p className="mt-1 text-sm text-muted">{error}</p>
             <button
-              onClick={load}
+              onClick={reload}
               className="mt-3 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:border-accent"
             >
               Try again
             </button>
           </div>
-        ) : visible.length === 0 ? (
+        ) : items.length === 0 && !loading ? (
           <div className="rounded-xl border border-dashed border-border bg-surface p-10 text-center">
             <p className="font-medium">
-              {series.length === 0
+              {!current?.all_count
                 ? "No series stored yet"
                 : "Nothing matches these filters"}
             </p>
             <p className="mt-1 text-sm text-muted">
-              {series.length === 0
-                ? "Hit Refresh now to check the site for series that debuted this month."
+              {!current?.all_count
+                ? "Hit Refresh now to check every site for series that debuted this month."
                 : month === "current"
                   ? `Nothing debuted in ${monthLabel(thisMonth)} yet — the site adds titles in batches.`
                   : "Try a different month or clear the name filter."}
             </p>
-            {series.length > 0 && (
+            {filtered && (
               <button
                 onClick={() => {
                   setMonth("all");
@@ -291,13 +362,47 @@ export default function Dashboard() {
         ) : (
           <>
             <p className="mb-3 text-xs text-muted">
-              Showing {visible.length} of {series.length}
+              Showing {items.length} of {current?.total ?? items.length}
+              {loading && " · updating…"}
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {visible.map((s) => (
+            <div
+              className={`grid gap-4 transition-opacity sm:grid-cols-2 ${
+                loading ? "opacity-60" : ""
+              }`}
+            >
+              {items.map((s) => (
                 <SeriesCard key={s.slug} series={s} source={source} />
               ))}
+              {loadingMore &&
+                [0, 1].map((i) => (
+                  <div
+                    key={`more-${i}`}
+                    className="h-[156px] animate-pulse rounded-xl border border-border bg-surface"
+                  />
+                ))}
             </div>
+
+            <div ref={sentinel} aria-hidden="true" />
+
+            {moreError ? (
+              <div className="mt-5 flex flex-col items-center gap-2 text-sm">
+                <p className="text-accent">{moreError}</p>
+                <button
+                  onClick={() => void loadMore()}
+                  className="rounded-lg border border-border px-3 py-1.5 font-medium hover:border-accent"
+                >
+                  Load more
+                </button>
+              </div>
+            ) : (
+              nextOffset == null &&
+              !loading &&
+              items.length > PAGE_SIZE && (
+                <p className="mt-6 text-center text-xs text-muted">
+                  That&apos;s everything — {items.length} series.
+                </p>
+              )
+            )}
           </>
         )}
       </section>

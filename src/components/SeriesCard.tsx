@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { absoluteTime, relativeTime } from "@/lib/format";
 import { coverSrc } from "@/lib/api";
-import type { VortexSeries } from "@/lib/api";
+import type { SeriesSummary } from "@/lib/api";
 
 /* Covers come through the backend's cover proxy rather than next/image, so no
    remote-host config is needed and a CDN change can't break the build. See
@@ -11,7 +11,7 @@ export default function SeriesCard({
   series,
   source,
 }: {
-  series: VortexSeries;
+  series: SeriesSummary;
   source: string;
 }) {
   return (
