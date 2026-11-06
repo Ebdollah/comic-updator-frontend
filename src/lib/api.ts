@@ -21,6 +21,7 @@ export interface SeriesSummary {
   name: string;
   url: string;
   cover_url: string | null;
+  original_cover_url?: string | null;
   rating: number | null;
   type: string | null;
   status: string | null;
@@ -164,16 +165,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Cover images are served through the backend rather than hotlinked.
- *
- * Thunder's origin sits behind a Cloudflare challenge that answers a browser's
- * <img> request with an HTML challenge page, so the image can only ever render
- * broken. The backend holds a cleared session for that origin, so it is the one
- * party able to fetch the bytes. Vortex covers go the same route for the sake
- * of one code path; the backend fetches those plainly.
+ * Cover images stored in Backblaze B2 load directly from the bucket.
+ * For any legacy unmigrated upstream URLs, they route through the backend proxy.
  */
-export const coverSrc = (source: string, url: string) =>
-  `${API_BASE}/sources/${encodeURIComponent(source)}/cover?url=${encodeURIComponent(url)}`;
+export const coverSrc = (source: string, url: string | null | undefined): string => {
+  if (!url) return "";
+  // Direct load from Backblaze B2 bucket
+  if (url.includes("backblazeb2.com")) {
+    return url;
+  }
+  return `${API_BASE}/sources/${encodeURIComponent(source)}/cover?url=${encodeURIComponent(url)}`;
+};
 
 export const api = {
   /** The sources this backend can scrape. Drives the dashboard tabs. */
