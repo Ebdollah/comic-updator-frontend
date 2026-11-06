@@ -13,18 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Comic Updator",
+  title: "Comic Updator — Live Debut Tracker & Cloud Backup",
   description:
-    "Tracks series on vortexscans.org whose first chapter released this month.",
+    "Live tracking & Backblaze B2 CDN backup for comic debuts across Vortex Scans and Thunder Scans.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col selection:bg-rose-500/30 selection:text-rose-200">
+        {children}
+      </body>
     </html>
   );
 }

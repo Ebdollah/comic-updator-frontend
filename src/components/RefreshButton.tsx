@@ -2,27 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type MultiScrapeResult } from "@/lib/api";
+import { RefreshCw, CheckCircle2, AlertCircle, Sparkles, X } from "lucide-react";
 
 interface Props {
-  /** Called after a run so the caller can reload its data. */
   onDone: () => void | Promise<void>;
 }
 
 const plural = (n: number) => (n === 1 ? "comic" : "comics");
 
-/**
- * Scrapes every source at once on demand. The scheduler runs daily on its
- * own; this is the "check right now" escape hatch.
- */
 export default function RefreshButton({ onDone }: Props) {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState<MultiScrapeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // A full run crawls catalogue pages and sitemaps and takes about a minute.
-  // Without a ticking counter that wait reads as a hung button.
   useEffect(() => {
     if (running) {
       timer.current = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -40,6 +35,7 @@ export default function RefreshButton({ onDone }: Props) {
     setElapsed(0);
     setError(null);
     setResult(null);
+    setDismissed(false);
     try {
       const res = await api.scrapeAll();
       setResult(res);
@@ -54,89 +50,99 @@ export default function RefreshButton({ onDone }: Props) {
   const allOk = result?.sources.every((s) => s.ok) ?? false;
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="relative flex flex-col items-end gap-2.5">
       <button
         onClick={run}
         disabled={running}
-        className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        className="group relative inline-flex items-center gap-2.5 overflow-hidden rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-white shadow-lg shadow-rose-500/25 transition-all duration-300 hover:shadow-rose-500/40 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          className={`h-4 w-4 ${running ? "animate-spin" : ""}`}
-          aria-hidden="true"
-        >
-          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-          <path d="M21 3v6h-6" />
-        </svg>
-        {running ? `Checking all sites… ${elapsed}s` : "Refresh now"}
+        <span className="absolute inset-0 bg-white/20 opacity-0 transition-opacity group-hover:opacity-100" />
+        <RefreshCw
+          className={`h-3.5 w-3.5 transition-transform ${
+            running ? "animate-spin" : "group-hover:rotate-180 duration-500"
+          }`}
+        />
+        <span>{running ? `Checking sites (${elapsed}s)…` : "Scan for Updates"}</span>
       </button>
 
       {running && (
-        <p className="max-w-[16rem] text-right text-xs text-muted">
-          Scanning every site at the same time. A full run takes about a
-          minute — leave this open.
-        </p>
+        <div className="flex items-center gap-2 text-right text-xs text-muted">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          <span>Scanning catalogues & sitemaps (takes ~30-60s)</span>
+        </div>
       )}
 
-      {result && !running && (
+      {result && !running && !dismissed && (
         <div
           role="status"
-          className="w-full max-w-[18rem] rounded-lg border border-border bg-surface px-3 py-2 text-xs"
+          className="glass-dropdown animate-in fade-in slide-in-from-top-2 absolute right-0 top-12 z-50 w-80 rounded-2xl p-4 text-xs"
         >
-          <p className="font-semibold">
-            {result.total_saved > 0 ? (
-              <span className="text-ok">
-                {result.total_saved} new {plural(result.total_saved)} added
-              </span>
-            ) : allOk ? (
-              <span>
-                0 comics updated on{" "}
-                {result.sources.length === 2 ? "both sites" : "any site"}
-              </span>
-            ) : (
-              <span>No new comics added</span>
-            )}
-          </p>
-          <ul className="mt-1.5 space-y-1">
-            {result.sources.map((s) => (
-              <li key={s.source} className="flex justify-between gap-3">
-                <span className="text-muted">{s.name}</span>
-                {s.ok && s.result ? (
-                  <span
-                    className={`tabular-nums font-medium ${
-                      s.result.saved > 0 ? "text-ok" : ""
-                    }`}
-                    title={`${s.result.matched_month} debuted in ${s.result.month}, ${s.result.already_stored} already stored · ${s.result.duration_seconds}s`}
-                  >
-                    {s.result.saved} new
+          <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-2.5">
+            <div className="flex items-center gap-2">
+              {allOk ? (
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-ok/20 text-ok">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                </div>
+              ) : (
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-warn/20 text-warn">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                </div>
+              )}
+              <span className="font-semibold text-foreground">
+                {result.total_saved > 0 ? (
+                  <span className="text-ok">
+                    +{result.total_saved} new {plural(result.total_saved)} found
                   </span>
                 ) : (
-                  <span className="font-medium text-accent" title={s.error ?? ""}>
-                    Failed
-                  </span>
+                  <span>All catalogs up to date</span>
                 )}
-              </li>
+              </span>
+            </div>
+            <button
+              onClick={() => setDismissed(true)}
+              className="text-muted hover:text-foreground transition-colors p-0.5"
+              aria-label="Dismiss scan results"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {result.sources.map((s) => (
+              <div
+                key={s.source}
+                className="flex items-center justify-between rounded-lg bg-white/[0.03] px-2.5 py-1.5"
+              >
+                <span className="font-medium text-muted-light">{s.name}</span>
+                {s.ok && s.result ? (
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      s.result.saved > 0 ? "text-ok" : "text-muted"
+                    }`}
+                  >
+                    {s.result.saved > 0 ? `+${s.result.saved} new` : "0 new"}
+                  </span>
+                ) : (
+                  <span className="font-semibold text-accent">Error</span>
+                )}
+              </div>
             ))}
-          </ul>
-          {result.sources
-            .filter((s) => !s.ok)
-            .map((s) => (
-              <p key={s.source} className="mt-1.5 break-words text-accent">
-                {s.name}: {s.error}
-              </p>
-            ))}
-          <p className="mt-1.5 text-right text-muted">
-            {result.duration_seconds}s
-          </p>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-2 text-[11px] text-muted">
+            <span>Duration: {result.duration_seconds}s</span>
+            <span className="text-ok flex items-center gap-1">
+              <Sparkles className="h-3 w-3" /> Auto-synced
+            </span>
+          </div>
         </div>
       )}
 
       {error && !running && (
-        <p className="max-w-xs text-right text-xs text-accent">{error}</p>
+        <div className="flex items-center gap-2 text-right text-xs text-accent">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
+        </div>
       )}
     </div>
   );
