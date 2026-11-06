@@ -276,7 +276,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------
           TOP BAR & HERO HEADER
       ------------------------------------------------------------- */}
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] pb-6">
+      <header className="relative z-20 mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] pb-6">
         <div className="flex items-center gap-3.5">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-600 shadow-lg shadow-rose-500/30">
             <Layers className="h-6 w-6 text-white" />
@@ -356,7 +356,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------
           FILTER & TOOLBAR CONTROL CENTER
       ------------------------------------------------------------- */}
-      <div className="mt-8 space-y-3.5 rounded-2xl border border-white/[0.08] bg-surface/60 p-4 backdrop-blur-md shadow-xl">
+      <div className="relative z-30 mt-8 space-y-3.5 rounded-2xl border border-white/[0.08] bg-surface/60 p-4 backdrop-blur-md shadow-xl">
         {/* Row 1: Search & Sorter & View Mode */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Search Bar */}
@@ -513,7 +513,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------
           RESULTS SECTION & COMIC CARDS
       ------------------------------------------------------------- */}
-      <section className="mt-7">
+      <section className="relative z-10 mt-7">
         {showSkeleton ? (
           <div
             className={

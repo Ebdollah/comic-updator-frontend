@@ -198,11 +198,18 @@ export default function DebutMonthPicker({
           YEAR & MONTH PICKER POPOVER MODAL
       ------------------------------------------------------------- */}
       {isOpen && (
-        <div
-          role="dialog"
-          aria-label="Filter series by debut date"
-          className="glass-dropdown animate-in fade-in zoom-in-95 absolute left-0 sm:left-auto sm:right-0 top-11 z-50 w-[320px] sm:w-[360px] rounded-3xl p-5 shadow-2xl backdrop-blur-2xl"
-        >
+        <>
+          {/* Backdrop to capture outside clicks and block interactions below */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
+            onClick={() => setIsOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-label="Filter series by debut date"
+            className="animate-in fade-in zoom-in-95 absolute left-0 top-12 z-50 w-[330px] sm:w-[370px] max-w-[calc(100vw-2rem)] rounded-3xl border border-white/15 bg-[#12161f] p-5 shadow-2xl shadow-black/90 backdrop-blur-2xl"
+          >
           {/* Header with Title & Close button */}
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
             <div className="flex items-center gap-2">
@@ -379,7 +386,8 @@ export default function DebutMonthPicker({
             </div>
           </div>
         </div>
-      )}
+      </>
+    )}
     </div>
   );
 }
