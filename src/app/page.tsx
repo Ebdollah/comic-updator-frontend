@@ -14,6 +14,7 @@ import { monthKey, monthLabel, shiftMonth } from "@/lib/format";
 import RefreshButton from "@/components/RefreshButton";
 import SeriesCard from "@/components/SeriesCard";
 import StatusBar from "@/components/StatusBar";
+import DebutMonthPicker from "@/components/DebutMonthPicker";
 import {
   Search,
   X,
@@ -463,28 +464,15 @@ export default function Dashboard() {
               );
             })}
 
-            {/* Specific Month Dropdown */}
-            <div className="relative">
-              <select
-                value={["all", "current", "previous"].includes(month) ? "" : month}
-                onChange={(e) => setMonth(e.target.value || "all")}
-                aria-label="Jump to a specific debut month"
-                className={`rounded-xl border bg-surface-2 px-3 py-1.5 text-xs font-semibold outline-none transition-all cursor-pointer ${
-                  ["all", "current", "previous"].includes(month)
-                    ? "border-white/[0.08] text-muted hover:border-white/20 hover:text-foreground"
-                    : "border-accent bg-accent/20 text-accent font-bold"
-                }`}
-              >
-                <option value="" className="bg-surface text-foreground">
-                  Specific Month ({months.length})…
-                </option>
-                {months.map(({ month: key, count }) => (
-                  <option key={key} value={key} className="bg-surface text-foreground">
-                    {monthLabel(key)} ({count} series)
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Dynamic Year & Month Archive Picker */}
+            <DebutMonthPicker
+              months={months}
+              selectedMonth={month}
+              onSelect={(m) => setMonth(m)}
+              thisMonthKey={thisMonth}
+              lastMonthKey={lastMonth}
+              allCount={current?.all_count ?? 0}
+            />
           </div>
 
           {/* Quick Sub-filters (Type & Bookmarks) */}
